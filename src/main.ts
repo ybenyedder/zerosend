@@ -108,17 +108,45 @@ function shortFingerprint(fp: string): string {
   return parts.slice(0, 4).join(":");
 }
 
-function toast(message: string) {
+const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+function reducedMotion(): boolean {
+  return reducedMotionQuery.matches;
+}
+
+type ToastKind = "info" | "success" | "error";
+
+function toast(message: string, kind: ToastKind = "info") {
   const el = document.createElement("div");
-  el.className = "toast";
-  el.textContent = message;
+  el.className = `toast toast-${kind}`;
+  const dot = document.createElement("span");
+  dot.className = "toast-dot";
+  const text = document.createElement("span");
+  text.textContent = message;
+  el.append(dot, text);
   toastStack.appendChild(el);
-  setTimeout(() => el.remove(), 4200);
+  window.setTimeout(() => {
+    el.classList.add("toast-out");
+    window.setTimeout(() => el.remove(), 350);
+  }, 4200);
+}
+
+/** Collapses a stacked card (height and padding) while sliding it out, so the
+ *  cards around it glide into place instead of snapping when it disappears. */
+function collapseAndRemove(el: HTMLElement) {
+  if (reducedMotion()) {
+    el.remove();
+    return;
+  }
+  el.style.height = `${el.offsetHeight}px`;
+  void el.offsetHeight; // commit the fixed height before transitioning to 0
+  el.classList.add("collapsing");
+  window.setTimeout(() => el.remove(), 360);
 }
 
 /** Launches a small glowing packet from `fromEl` toward the transfers panel. */
 function flyPacket(fromEl: HTMLElement) {
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (reducedMotion()) return;
 
   const from = fromEl.getBoundingClientRect();
   const to = transfersPanel.getBoundingClientRect();
@@ -150,7 +178,15 @@ function flyPacket(fromEl: HTMLElement) {
 const MAP_SIZE = 560; // fallback box size used before the layout is measured
 const NODE_HALF = 52; // half a node's width — keeps nodes inside the map box
 const SVG_NS = "http://www.w3.org/2000/svg";
+const EDGE_TWEEN_MS = 480;
 
+interface MapEntry {
+  node: HTMLElement;
+  edge: SVGLineElement;
+  tween: number; // rAF handle of the running edge tween, 0 when idle
+}
+
+const mapEntries = new Map<string, MapEntry>();
 let lastPeersSignature: string | null = null;
 
 /** Everything the map actually draws from — so a re-render is skipped (and the
@@ -163,6 +199,42 @@ function peersSignature(list: Peer[]): string {
     .join("");
 }
 
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+/** Glides an edge's endpoints to their new coordinates so the constellation
+ *  reflows smoothly instead of snapping when a peer joins or leaves. SVG line
+ *  geometry can't be CSS-transitioned portably, hence the rAF tween. */
+function tweenEdge(entry: MapEntry, x1: number, y1: number, x2: number, y2: number) {
+  cancelAnimationFrame(entry.tween);
+  const line = entry.edge;
+  const set = (a: number, b: number, c: number, d: number) => {
+    line.setAttribute("x1", String(a));
+    line.setAttribute("y1", String(b));
+    line.setAttribute("x2", String(c));
+    line.setAttribute("y2", String(d));
+  };
+  if (reducedMotion()) {
+    set(x1, y1, x2, y2);
+    return;
+  }
+  const from = ["x1", "y1", "x2", "y2"].map((attr) => Number(line.getAttribute(attr)));
+  const start = performance.now();
+  const step = (now: number) => {
+    const t = Math.min(1, (now - start) / EDGE_TWEEN_MS);
+    const k = easeOutCubic(t);
+    set(
+      from[0] + (x1 - from[0]) * k,
+      from[1] + (y1 - from[1]) * k,
+      from[2] + (x2 - from[2]) * k,
+      from[3] + (y2 - from[3]) * k
+    );
+    if (t < 1) entry.tween = requestAnimationFrame(step);
+  };
+  entry.tween = requestAnimationFrame(step);
+}
+
 function renderPeers(force = false) {
   const list = [...peers.values()].sort((a, b) => a.name.localeCompare(b.name));
   const signature = peersSignature(list);
@@ -171,8 +243,6 @@ function renderPeers(force = false) {
 
   peersGrid.hidden = list.length === 0;
   emptyState.hidden = list.length > 0;
-  mapNodes.innerHTML = "";
-  networkEdges.innerHTML = "";
 
   // Measure the actual box (reading a layout property after unhiding forces the
   // reflow), so nodes stay inside it on narrow/mobile viewports instead of
@@ -184,27 +254,79 @@ function renderPeers(force = false) {
   const radius = Math.max(0, Math.min(width, height) / 2 - (NODE_HALF + 24));
   const count = list.length;
 
+  const present = new Set<string>();
+  let arrivals = 0;
+
   list.forEach((peer, i) => {
     const angle = (2 * Math.PI * i) / count - Math.PI / 2;
     const x = cx + radius * Math.cos(angle);
     const y = cy + radius * Math.sin(angle);
+    present.add(peer.id);
 
-    const line = document.createElementNS(SVG_NS, "line");
-    line.setAttribute("x1", String(cx));
-    line.setAttribute("y1", String(cy));
-    line.setAttribute("x2", String(x));
-    line.setAttribute("y2", String(y));
-    networkEdges.appendChild(line);
+    let entry = mapEntries.get(peer.id);
+    if (entry) {
+      // Existing node: the CSS transition on left/top (and the edge tween)
+      // glides it to its new spot instead of tearing the DOM down.
+      entry.node.style.left = `${x}px`;
+      entry.node.style.top = `${y}px`;
+      tweenEdge(entry, cx, cy, x, y);
+    } else {
+      const delay = Math.min(arrivals, 6) * 70;
+      arrivals++;
 
-    const node = peerNodeTemplate.content.firstElementChild!.cloneNode(true) as HTMLElement;
-    node.dataset.peerId = peer.id;
-    node.style.left = `${x}px`;
-    node.style.top = `${y}px`;
-    node.querySelector(".map-node-initial")!.textContent = peer.name.trim().charAt(0).toUpperCase() || "?";
-    node.querySelector(".map-node-name")!.textContent = peer.name;
-    node.addEventListener("click", () => openDevicePanel(peer.id));
-    mapNodes.appendChild(node);
+      const edge = document.createElementNS(SVG_NS, "line");
+      edge.setAttribute("pathLength", "1"); // lets CSS draw it in via dash offset
+      edge.setAttribute("x1", String(cx));
+      edge.setAttribute("y1", String(cy));
+      edge.setAttribute("x2", String(x));
+      edge.setAttribute("y2", String(y));
+      edge.classList.add("drawing");
+      edge.style.animationDelay = `${delay}ms`;
+      // Timeout rather than animationend: the event can be lost if the map is
+      // hidden mid-animation, which would leave the class (and its delay) on.
+      window.setTimeout(() => {
+        edge.classList.remove("drawing");
+        edge.style.animationDelay = "";
+      }, delay + 700);
+      networkEdges.appendChild(edge);
+
+      const node = peerNodeTemplate.content.firstElementChild!.cloneNode(true) as HTMLElement;
+      node.dataset.peerId = peer.id;
+      node.style.left = `${x}px`;
+      node.style.top = `${y}px`;
+      node.classList.add("entering");
+      node.style.animationDelay = `${delay}ms`;
+      window.setTimeout(() => {
+        node.classList.remove("entering");
+        node.style.animationDelay = "";
+      }, delay + 700);
+      node.addEventListener("click", () => openDevicePanel(peer.id));
+      mapNodes.appendChild(node);
+
+      entry = { node, edge, tween: 0 };
+      mapEntries.set(peer.id, entry);
+    }
+
+    entry.node.querySelector(".map-node-initial")!.textContent = peer.name.trim().charAt(0).toUpperCase() || "?";
+    entry.node.querySelector(".map-node-name")!.textContent = peer.name;
   });
+
+  for (const [id, entry] of mapEntries) {
+    if (present.has(id)) continue;
+    mapEntries.delete(id);
+    cancelAnimationFrame(entry.tween);
+    if (peersGrid.hidden || reducedMotion()) {
+      entry.node.remove();
+      entry.edge.remove();
+    } else {
+      entry.node.classList.add("leaving");
+      entry.edge.classList.add("fading");
+      window.setTimeout(() => {
+        entry.node.remove();
+        entry.edge.remove();
+      }, 360);
+    }
+  }
 }
 
 async function refreshPeers() {
@@ -235,10 +357,36 @@ async function sendFiles(peerId: string, paths: string[]) {
       `Vers ${peer?.name ?? "appareil"} — ${paths.length} fichier${paths.length > 1 ? "s" : ""}`
     );
     const originEl = mapNodes.querySelector<HTMLElement>(`[data-peer-id="${cssEscape(peerId)}"]`);
-    if (originEl) flyPacket(originEl);
+    if (originEl) {
+      flyPacket(originEl);
+      originEl.classList.add("sending");
+      window.setTimeout(() => originEl.classList.remove("sending"), 700);
+    }
   } catch (e) {
-    toast(String(e));
+    toast(String(e), "error");
   }
+}
+
+// ---------------- side panels (settings + device) ----------------
+
+function showOverlay(overlay: HTMLElement) {
+  overlay.classList.remove("closing");
+  overlay.hidden = false;
+  overlay.querySelector<HTMLElement>(".settings-panel")?.focus();
+}
+
+function hideOverlay(overlay: HTMLElement) {
+  if (overlay.hidden || overlay.classList.contains("closing")) return;
+  if (reducedMotion()) {
+    overlay.hidden = true;
+    return;
+  }
+  overlay.classList.add("closing");
+  window.setTimeout(() => {
+    if (!overlay.classList.contains("closing")) return; // reopened meanwhile
+    overlay.hidden = true;
+    overlay.classList.remove("closing");
+  }, 240);
 }
 
 // ---------------- device detail panel ----------------
@@ -259,11 +407,11 @@ function openDevicePanel(peerId: string) {
   devicePanelPlatform.textContent = PLATFORM_LABEL[peer.platform] ?? peer.platform;
   devicePanelAddress.textContent = `${peer.address}:${peer.https_port}`;
   devicePanelFingerprint.textContent = peer.fingerprint;
-  deviceOverlay.hidden = false;
+  showOverlay(deviceOverlay);
 }
 
 function closeDevicePanel() {
-  deviceOverlay.hidden = true;
+  hideOverlay(deviceOverlay);
   activeDevicePeerId = null;
 }
 
@@ -308,7 +456,7 @@ function addIncoming(evt: IncomingTransferEvent) {
   node.querySelector(".incoming-reject")!.addEventListener("click", () => respond(evt.transfer_id, false));
 
   const bar = node.querySelector<HTMLElement>(".incoming-timer-bar")!;
-  bar.style.transition = "transform 120s linear";
+  bar.classList.add("running");
   requestAnimationFrame(() => {
     bar.style.transform = "scaleX(0)";
   });
@@ -321,7 +469,10 @@ function addIncoming(evt: IncomingTransferEvent) {
 
 function removeIncoming(transferId: string) {
   const node = incomingStack.querySelector<HTMLElement>(`[data-transfer-id="${cssEscape(transferId)}"]`);
-  node?.remove();
+  if (node) {
+    node.removeAttribute("data-transfer-id"); // a collapsing card must not be found again
+    collapseAndRemove(node);
+  }
   const timerId = incomingTimers.get(transferId);
   if (timerId) {
     clearTimeout(timerId);
@@ -334,7 +485,7 @@ async function respond(transferId: string, accept: boolean) {
   try {
     await invoke("respond_to_transfer", { transferId, accept });
   } catch (e) {
-    toast(String(e));
+    toast(String(e), "error");
   }
 }
 
@@ -383,7 +534,7 @@ function completeTransfer(evt: TransferDoneEvent) {
   ui.stamp.textContent = evt.ok ? "✓" : "✕";
   ui.stamp.classList.add(evt.ok ? "ok" : "error", "show");
   setTimeout(() => {
-    ui.el.remove();
+    collapseAndRemove(ui.el);
     transfersUI.delete(evt.transfer_id);
   }, evt.ok ? 3500 : 6000);
 }
@@ -399,18 +550,40 @@ function setHoveredPeer(el: HTMLElement | null) {
   hoveredPeerEl?.classList.add("drop-hover");
 }
 
+let dropHideTimer = 0;
+
+function showDropOverlay() {
+  window.clearTimeout(dropHideTimer);
+  dropOverlay.classList.remove("out");
+  dropOverlay.hidden = false;
+}
+
+function hideDropOverlay() {
+  if (dropOverlay.hidden) return;
+  if (reducedMotion()) {
+    dropOverlay.hidden = true;
+    return;
+  }
+  dropOverlay.classList.add("out");
+  window.clearTimeout(dropHideTimer);
+  dropHideTimer = window.setTimeout(() => {
+    dropOverlay.hidden = true;
+    dropOverlay.classList.remove("out");
+  }, 200);
+}
+
 async function setupDragDrop() {
   const webview = getCurrentWebview();
   await webview.onDragDropEvent((event) => {
     const payload = event.payload as { type: string; position?: { x: number; y: number }; paths?: string[] };
     if (payload.type === "over" && payload.position) {
-      dropOverlay.hidden = false;
+      showDropOverlay();
       const cssX = payload.position.x / window.devicePixelRatio;
       const cssY = payload.position.y / window.devicePixelRatio;
       const el = (document.elementFromPoint(cssX, cssY) as HTMLElement | null)?.closest<HTMLElement>(".peer-card") ?? null;
       setHoveredPeer(el);
     } else if (payload.type === "drop") {
-      dropOverlay.hidden = true;
+      hideDropOverlay();
       const peerId = hoveredPeerEl?.dataset.peerId;
       setHoveredPeer(null);
       const paths = payload.paths ?? [];
@@ -420,7 +593,7 @@ async function setupDragDrop() {
         toast("Déposez les fichiers directement sur un appareil");
       }
     } else {
-      dropOverlay.hidden = true;
+      hideDropOverlay();
       setHoveredPeer(null);
     }
   });
@@ -463,10 +636,10 @@ async function renderTrustedPeers() {
     row.querySelector(".trusted-forget")!.addEventListener("click", async () => {
       try {
         await invoke("forget_peer", { peerId: peer.id });
-        toast("Appareil oublié — il devra être confirmé à nouveau");
+        toast("Appareil oublié — il devra être confirmé à nouveau", "success");
         await renderTrustedPeers();
       } catch (e) {
-        toast(String(e));
+        toast(String(e), "error");
       }
     });
     trustedList.appendChild(row);
@@ -483,11 +656,11 @@ async function openSettings() {
   const device = await invoke<DeviceInfo>("get_device");
   settingFingerprint.textContent = device.fingerprint;
   await renderTrustedPeers();
-  settingsOverlay.hidden = false;
+  showOverlay(settingsOverlay);
 }
 
 function closeSettings() {
-  settingsOverlay.hidden = true;
+  hideOverlay(settingsOverlay);
 }
 
 async function saveSettings(e: SubmitEvent) {
@@ -504,9 +677,9 @@ async function saveSettings(e: SubmitEvent) {
     updateStealthBadge();
     await refreshHeader();
     closeSettings();
-    toast("Paramètres enregistrés");
+    toast("Paramètres enregistrés", "success");
   } catch (e) {
-    toast(String(e));
+    toast(String(e), "error");
   }
 }
 
@@ -527,7 +700,7 @@ async function openReceivedFolder() {
     const s = await invoke<Settings>("get_settings");
     await revealItemInDir(s.download_dir);
   } catch (e) {
-    toast(String(e));
+    toast(String(e), "error");
   }
 }
 
@@ -556,7 +729,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       try {
         await revealItemInDir(settingDirInput.value);
       } catch (e) {
-        toast(String(e));
+        toast(String(e), "error");
       }
     }
   });

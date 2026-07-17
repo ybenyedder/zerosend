@@ -78,7 +78,7 @@
 
     <div id="settings-overlay" class="settings-overlay" hidden>
       <div class="settings-backdrop" id="settings-backdrop"></div>
-      <aside class="settings-panel">
+      <aside class="settings-panel" tabindex="-1">
         <div class="settings-header">
           <h2>Paramètres</h2>
           <button id="settings-close" class="icon-btn" aria-label="Fermer">
@@ -149,7 +149,7 @@
 
     <div id="device-overlay" class="settings-overlay" hidden>
       <div class="settings-backdrop" id="device-backdrop"></div>
-      <aside class="settings-panel">
+      <aside class="settings-panel" tabindex="-1">
         <div class="settings-header">
           <h2 id="device-panel-name">Appareil</h2>
           <button id="device-panel-close" class="icon-btn" aria-label="Fermer">
@@ -181,7 +181,7 @@
       </aside>
     </div>
 
-    <div id="toast-stack" class="toast-stack"></div>
+    <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 
     <template id="peer-node-template">
       <button type="button" class="peer-card map-node">

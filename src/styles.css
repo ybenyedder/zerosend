@@ -22,6 +22,8 @@
   --radius-m: 8px;
   --radius-s: 5px;
   --shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+  --ease-out: cubic-bezier(0.22, 0.9, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.3, 0.4, 1);
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
   font-family: var(--sans);
@@ -49,6 +51,30 @@ body {
   user-select: none;
 }
 
+::selection {
+  background: rgba(255, 138, 61, 0.3);
+  color: var(--paper);
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 #app {
   height: 100vh;
   display: flex;
@@ -63,6 +89,14 @@ body {
   padding: 16px 24px;
   border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
+  animation: boot-drop 0.55s var(--ease-out) both;
+}
+
+@keyframes boot-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
 }
 
 .brand {
@@ -126,12 +160,17 @@ body {
   font-family: var(--mono);
   font-size: 11.5px;
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease;
+  transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s var(--ease-out);
 }
 
 .chip:hover {
   border-color: var(--signal);
   color: var(--paper);
+  transform: translateY(-1px);
+}
+
+.chip:active {
+  transform: translateY(0);
 }
 
 .chip-sep {
@@ -153,13 +192,25 @@ body {
   border: 1px solid transparent;
   color: var(--paper-dim);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s var(--ease-out);
 }
 
 .icon-btn:hover {
   background: var(--ink-850);
   border-color: var(--line-strong);
   color: var(--paper);
+}
+
+.icon-btn:active {
+  transform: scale(0.92);
+}
+
+.icon-btn svg {
+  transition: transform 0.35s var(--ease-out);
+}
+
+#settings-btn:hover svg {
+  transform: rotate(60deg);
 }
 
 /* ---------- content ---------- */
@@ -179,6 +230,14 @@ body {
   gap: 6px;
   color: var(--paper-dim);
   text-align: center;
+  animation: rise-in 0.55s var(--ease-out) 0.12s both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
 }
 
 .empty-state .hint {
@@ -205,6 +264,28 @@ body {
   inset: 20px;
   border-radius: 50%;
   border: 1px solid var(--line);
+}
+
+.scan-dial::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 138, 61, 0.35);
+  animation: radar-ping 3.2s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes radar-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  75%,
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
 }
 
 .scan-sweep {
@@ -237,6 +318,14 @@ body {
   height: 560px;
   max-width: 100%;
   max-height: 100%;
+  animation: map-in 0.5s var(--ease-out) both;
+}
+
+@keyframes map-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }
 
 .network-edges {
@@ -251,6 +340,29 @@ body {
 .network-edges line {
   stroke: var(--line-strong);
   stroke-width: 1;
+  /* pathLength="1" is set on each line in JS, so a dash of length 1 covers the
+     whole segment: dashoffset 1 → invisible, 0 → fully drawn. */
+  stroke-dasharray: 1;
+  transition: opacity 0.3s ease;
+}
+
+.network-edges line.drawing {
+  animation: edge-draw 0.6s var(--ease-out) backwards;
+}
+
+@keyframes edge-draw {
+  from {
+    stroke-dashoffset: 1;
+    opacity: 0;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+.network-edges line.fading {
+  opacity: 0;
 }
 
 .map-center {
@@ -263,9 +375,11 @@ body {
   align-items: center;
   gap: 8px;
   z-index: 1;
+  pointer-events: none;
 }
 
 .map-center-mark {
+  position: relative;
   width: 52px;
   height: 52px;
   border-radius: 50%;
@@ -274,6 +388,20 @@ body {
   display: grid;
   place-items: center;
   box-shadow: 0 0 0 8px var(--ink-950), 0 0 24px rgba(255, 138, 61, 0.12);
+}
+
+.map-center-mark::before,
+.map-center-mark::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 138, 61, 0.4);
+  animation: radar-ping 4.4s ease-out infinite;
+}
+
+.map-center-mark::after {
+  animation-delay: 2.2s;
 }
 
 .map-center-mark svg {
@@ -327,7 +455,13 @@ body {
   cursor: pointer;
   font: inherit;
   color: inherit;
-  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  transition:
+    left 0.5s var(--ease-out),
+    top 0.5s var(--ease-out),
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .map-node:hover,
@@ -335,6 +469,51 @@ body {
   transform: translateY(-3px);
   border-color: var(--line-strong);
   background: var(--ink-800);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.map-node.entering {
+  animation: node-pop 0.55s cubic-bezier(0.18, 1.25, 0.35, 1) backwards;
+}
+
+@keyframes node-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.55) translateY(8px);
+  }
+}
+
+.map-node.leaving {
+  animation: node-out 0.32s ease forwards;
+  pointer-events: none;
+}
+
+@keyframes node-out {
+  to {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+.map-node.sending::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 1px solid var(--signal);
+  animation: send-ping 0.65s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes send-ping {
+  0% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.18);
+  }
 }
 
 .map-node.drop-hover {
@@ -354,6 +533,13 @@ body {
   font-weight: 800;
   font-size: 15px;
   color: var(--paper);
+  transition: border-color 0.18s ease, color 0.18s ease;
+}
+
+.map-node:hover .map-node-initial,
+.map-node.drop-hover .map-node-initial {
+  border-color: var(--signal);
+  color: var(--signal);
 }
 
 .map-node-name {
@@ -421,16 +607,19 @@ body {
   padding: 10px 16px;
   border-radius: var(--radius-s);
   cursor: pointer;
-  transition: filter 0.15s ease, transform 0.08s ease;
+  transition: filter 0.15s ease, transform 0.15s var(--ease-out), box-shadow 0.15s ease;
 }
 
 .btn-primary:hover {
-  filter: brightness(1.1);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(255, 138, 61, 0.25);
 }
 
 .btn-primary:active {
-  transform: scale(0.96);
+  transform: translateY(0) scale(0.96);
   filter: brightness(0.94);
+  box-shadow: none;
 }
 
 .btn-ghost {
@@ -444,12 +633,17 @@ body {
   padding: 10px 16px;
   border-radius: var(--radius-s);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s var(--ease-out);
 }
 
 .btn-ghost:hover {
   background: var(--ink-800);
   border-color: var(--paper-faint);
+  transform: translateY(-1px);
+}
+
+.btn-ghost:active {
+  transform: translateY(0) scale(0.97);
 }
 
 /* ---------- footer ---------- */
@@ -462,6 +656,14 @@ body {
   font-size: 11.5px;
   font-family: var(--mono);
   color: var(--paper-faint);
+  animation: boot-rise 0.55s var(--ease-out) 0.1s both;
+}
+
+@keyframes boot-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
 }
 
 .dot-secure {
@@ -470,6 +672,17 @@ body {
   border-radius: 50%;
   background: var(--online);
   box-shadow: 0 0 8px var(--online);
+  animation: secure-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes secure-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 4px var(--online);
+  }
+  50% {
+    box-shadow: 0 0 10px var(--online);
+  }
 }
 
 .footer-open-btn {
@@ -490,6 +703,33 @@ body {
   margin: 14px;
   border-radius: var(--radius-l);
   pointer-events: none;
+  animation: overlay-fade 0.2s ease both, drop-border-pulse 1.8s ease-in-out 0.2s infinite;
+}
+
+.drop-overlay.out {
+  animation: overlay-fade-out 0.18s ease both;
+}
+
+@keyframes overlay-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes overlay-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes drop-border-pulse {
+  0%,
+  100% {
+    border-color: var(--signal);
+  }
+  50% {
+    border-color: rgba(255, 138, 61, 0.45);
+  }
 }
 
 .drop-overlay p {
@@ -498,6 +738,14 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--paper);
+  animation: drop-text-in 0.3s var(--ease-spring) both;
+}
+
+@keyframes drop-text-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
 }
 
 /* ---------- incoming transfer ---------- */
@@ -607,6 +855,23 @@ body {
   transform-origin: left;
 }
 
+.incoming-timer-bar.running {
+  transition: transform 120s linear;
+  /* Shifts toward --danger as the 120 s acceptance window runs out. */
+  animation: timer-hue 120s linear forwards;
+}
+
+@keyframes timer-hue {
+  0%,
+  70% {
+    background: var(--signal);
+  }
+  90%,
+  100% {
+    background: var(--danger);
+  }
+}
+
 /* ---------- transfers panel ---------- */
 .transfers-panel {
   position: fixed;
@@ -626,17 +891,13 @@ body {
   padding: 12px 14px;
   box-shadow: var(--shadow);
   position: relative;
-  animation: panel-pop 0.28s cubic-bezier(0.2, 1.3, 0.4, 1);
+  animation: panel-pop 0.32s var(--ease-spring);
 }
 
 @keyframes panel-pop {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(10px) scale(0.97);
   }
 }
 
@@ -660,6 +921,7 @@ body {
   flex-shrink: 0;
   font-family: var(--mono);
   color: var(--paper-faint);
+  transition: color 0.2s ease;
 }
 
 .transfer-status.ok {
@@ -683,7 +945,7 @@ body {
   background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0 6px, transparent 6px 12px);
   background-size: 24px 100%;
   animation: tape-move 0.9s linear infinite;
-  transition: width 0.15s ease;
+  transition: width 0.25s var(--ease-out);
 }
 
 @keyframes tape-move {
@@ -750,6 +1012,25 @@ body {
   }
 }
 
+/* ---------- collapsing card exit (incoming + transfer stacks) ---------- */
+.collapsing {
+  height: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin: 0 !important;
+  border-width: 0 !important;
+  opacity: 0;
+  transform: translateX(18px) scale(0.97);
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    height 0.3s var(--ease-out),
+    padding 0.3s var(--ease-out),
+    border-width 0.3s var(--ease-out),
+    opacity 0.22s ease,
+    transform 0.3s var(--ease-out);
+}
+
 /* ---------- flying packet (send animation) ---------- */
 .packet-fly {
   position: fixed;
@@ -777,6 +1058,7 @@ body {
   position: absolute;
   inset: 0;
   background: rgba(5, 6, 4, 0.6);
+  animation: overlay-fade 0.25s ease both;
 }
 
 .settings-panel {
@@ -787,17 +1069,32 @@ body {
   border-left: 1px solid var(--line-strong);
   display: flex;
   flex-direction: column;
-  animation: panel-in 0.2s ease;
+  animation: panel-in 0.3s var(--ease-out) both;
+}
+
+.settings-panel:focus {
+  outline: none;
 }
 
 @keyframes panel-in {
   from {
-    transform: translateX(24px);
+    transform: translateX(40px);
     opacity: 0;
   }
+}
+
+.settings-overlay.closing .settings-backdrop {
+  animation: overlay-fade-out 0.2s ease both;
+}
+
+.settings-overlay.closing .settings-panel {
+  animation: panel-out 0.2s ease both;
+}
+
+@keyframes panel-out {
   to {
-    transform: translateX(0);
-    opacity: 1;
+    transform: translateX(40px);
+    opacity: 0;
   }
 }
 
@@ -826,6 +1123,50 @@ body {
   overflow-y: auto;
 }
 
+/* Fields cascade in as the panel slides open. */
+.settings-body > * {
+  animation: field-in 0.45s var(--ease-out) backwards;
+}
+
+.settings-body > *:nth-child(1) {
+  animation-delay: 0.04s;
+}
+.settings-body > *:nth-child(2) {
+  animation-delay: 0.07s;
+}
+.settings-body > *:nth-child(3) {
+  animation-delay: 0.1s;
+}
+.settings-body > *:nth-child(4) {
+  animation-delay: 0.13s;
+}
+.settings-body > *:nth-child(5) {
+  animation-delay: 0.16s;
+}
+.settings-body > *:nth-child(6) {
+  animation-delay: 0.19s;
+}
+.settings-body > *:nth-child(7) {
+  animation-delay: 0.22s;
+}
+.settings-body > *:nth-child(8) {
+  animation-delay: 0.25s;
+}
+.settings-body > *:nth-child(n + 9) {
+  animation-delay: 0.28s;
+}
+
+@keyframes field-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.settings-overlay.closing .settings-body > * {
+  animation: none;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -844,6 +1185,12 @@ body {
   font-size: 13.5px;
   font-family: inherit;
   user-select: text;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.field input[type="text"]:hover,
+.field input[type="number"]:hover {
+  border-color: var(--paper-faint);
 }
 
 .field input[type="text"]:focus,
@@ -896,7 +1243,11 @@ body {
   border-radius: 999px;
   position: relative;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.field-toggle input[type="checkbox"]:hover {
+  border-color: var(--paper-faint);
 }
 
 .field-toggle input[type="checkbox"]::after {
@@ -908,7 +1259,7 @@ body {
   height: 16px;
   border-radius: 50%;
   background: var(--paper-dim);
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease;
 }
 
 .field-toggle input[type="checkbox"]:checked {
@@ -954,6 +1305,7 @@ body {
   border: 1px dashed var(--line-strong);
   border-radius: 999px;
   padding: 4px 10px;
+  animation: overlay-fade 0.3s ease both;
 }
 
 /* ---------- trusted devices ---------- */
@@ -975,6 +1327,11 @@ body {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-s);
   padding: 8px 10px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.trusted-row:hover {
+  background: var(--ink-800);
 }
 
 .trusted-info {
@@ -1020,29 +1377,67 @@ body {
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
   z-index: 80;
 }
 
 .toast {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: min(440px, calc(100vw - 36px));
   background: var(--ink-900);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-s);
   padding: 10px 16px;
   font-size: 12.5px;
   box-shadow: var(--shadow);
-  animation: slide-down 0.18s ease;
+  animation: toast-in 0.35s var(--ease-spring) both;
 }
 
-@keyframes slide-down {
+@keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(-12px) scale(0.96);
   }
+}
+
+.toast.toast-out {
+  animation: toast-out 0.3s ease forwards;
+}
+
+@keyframes toast-out {
   to {
-    opacity: 1;
-    transform: translateY(0);
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
   }
+}
+
+.toast-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--paper-faint);
+}
+
+.toast-success {
+  border-color: rgba(125, 255, 177, 0.4);
+}
+
+.toast-success .toast-dot {
+  background: var(--online);
+  box-shadow: 0 0 8px var(--online);
+}
+
+.toast-error {
+  border-color: rgba(255, 92, 92, 0.5);
+}
+
+.toast-error .toast-dot {
+  background: var(--danger);
+  box-shadow: 0 0 8px var(--danger);
 }
 
 [hidden] {
@@ -1073,21 +1468,19 @@ body {
 
 /* ---------- motion preferences ---------- */
 @media (prefers-reduced-motion: reduce) {
-  .brand-mark-sweep,
-  .scan-sweep,
-  .signal-bars i,
-  .transfer-progress-bar {
-    animation: none !important;
-  }
-  .incoming-card,
-  .transfer-card,
-  .toast,
-  .settings-panel,
-  .peer-card,
-  .transfer-stamp.show {
-    animation: none !important;
-  }
-  * {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
+  }
+  /* The countdown bar is information (time left to accept), not decoration —
+     keep it counting down instead of snapping to empty. */
+  .incoming-timer-bar.running {
+    transition-duration: 120s !important;
+    animation: none !important;
   }
 }
