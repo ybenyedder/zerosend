@@ -1,0 +1,18 @@
+[package]
+name = "tauri-plugin-gallery-saver"
+version = "0.1.0"
+edition = "2021"
+description = "Inserts received files into the Android MediaStore so they show up in the Gallery/Files apps."
+links = "tauri-plugin-gallery-saver"
+build = "build.rs"
+
+[lib]
+name = "tauri_plugin_gallery_saver"
+path = "src/lib.rs"
+
+[dependencies]
+tauri = { version = "2", default-features = false }
+serde = { version = "1", features = ["derive"] }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

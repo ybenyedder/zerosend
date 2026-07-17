@@ -1,0 +1,42 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Rust / Tauri build output
+src-tauri/target
+src-tauri/plugins/*/target
+
+# Generated mobile projects (regenerate with `tauri android/ios init`)
+src-tauri/gen
+src-tauri/plugins/*/android/.tauri
+src-tauri/plugins/*/android/build
+src-tauri/plugins/*/android/.gradle
+
+# Android release signing material — never committed, only ever lives on the
+# machine that generated it and as base64 in GitHub Actions secrets
+*.keystore
+*.jks
+.signing/
+
+# Editor / tooling directories and files
+.ybenyedder
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+AUDIT_LOG.md

@@ -1,0 +1,148 @@
+name: publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to build and attach platform binaries to (e.g. v0.1.0)'
+        required: true
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      # Actions pinned to a commit SHA rather than a mutable tag: a compromised
+      # or re-pointed tag on any of these third-party (non-github/non-dtolnay-
+      # core) actions would otherwise run arbitrary code in this workflow with
+      # `contents: write` and a GITHUB_TOKEN that can publish releases.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: setup node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: lts/*
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch, pinned commit
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev build-essential libssl-dev
+
+      - name: install frontend dependencies
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: 'ZeroSend ${{ inputs.tag || github.ref_name }}'
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  publish-android:
+    needs: publish-tauri
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      NDK_VERSION: '27.1.12297006'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: setup node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: lts/*
+
+      # The Android Gradle Plugin requires Java 17; the ubuntu-22.04 runner
+      # defaults to Java 11, which fails the APK build outright ("Android Gradle
+      # plugin requires Java 17 to run. You are currently using Java 11.").
+      - name: setup Java 17
+        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: install Rust stable with Android targets
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch, pinned commit
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: install Android NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION"
+          # $ANDROID_HOME is a real env var here (runner-provided), but NOT
+          # part of GitHub Actions' `env` expression context — `${{ env.X }}`
+          # only sees vars this workflow itself defined. Compute NDK_HOME with
+          # a real shell and persist it for later steps via $GITHUB_ENV.
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: install frontend dependencies
+        run: npm ci
+
+      - name: init Android project
+        run: npx tauri android init --ci
+
+      # gen/android is regenerated from scratch by the step above (gitignored,
+      # never committed), so release signing has to be wired back in every
+      # run instead of being a one-time hand-edit — see the script for why.
+      - name: patch build.gradle.kts for release signing
+        run: python3 .github/scripts/patch_android_signing.py
+
+      # Written straight into gen/android, which is gitignored in its
+      # entirety — never persisted anywhere except this runner's filesystem
+      # and, encrypted, in this repo's Actions secrets.
+      - name: write release keystore
+        run: |
+          cd src-tauri/gen/android
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" > keystore.properties
+          echo "password=${{ secrets.ANDROID_KEY_PASSWORD }}" >> keystore.properties
+          base64 -d <<< "${{ secrets.ANDROID_KEY_BASE64 }}" > "$RUNNER_TEMP/zerosend-release.keystore"
+          echo "storeFile=$RUNNER_TEMP/zerosend-release.keystore" >> keystore.properties
+
+      - name: build signed release APK
+        run: npx tauri android build --apk --ci
+
+      - name: upload APK to the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          apk=$(find src-tauri/gen/android -type f -name '*.apk' -path '*release*' | head -n1)
+          if [ -z "$apk" ]; then
+            echo "no release .apk found under src-tauri/gen/android" >&2
+            exit 1
+          fi
+          tag='${{ inputs.tag || github.ref_name }}'
+          cp "$apk" "ZeroSend-${tag}-universal.apk"
+          gh release upload "$tag" "ZeroSend-${tag}-universal.apk" \
+            --repo "${{ github.repository }}" --clobber
