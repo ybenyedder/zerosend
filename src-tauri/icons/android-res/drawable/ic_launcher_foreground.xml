@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Avant-plan de l'icône adaptative ZeroSend : flèche d'envoi blanche,
+     centrée dans la zone de sécurité (les 72dp centraux des 108dp), avec des
+     extrémités arrondies. Sert aussi de calque "monochrome" (icônes thématiques
+     Android 13+). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="10.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M54,36 L54,76 M54,32 L38,49 M54,32 L70,49" />
+</vector>

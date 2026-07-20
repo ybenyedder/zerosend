@@ -101,7 +101,7 @@ src-tauri/src/
 
 src/
   main.ts       logique d'interface (aucun framework, TypeScript pur)
-  styles.css    design (glassmorphism, dégradé, thème sombre)
+  styles.css    design (minimaliste, thème clair + sombre suivant le système)
   index.html    structure de la page
 ```
 

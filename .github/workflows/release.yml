@@ -112,6 +112,13 @@ jobs:
       - name: init Android project
         run: npx tauri android init --ci
 
+      # gen/android is regenerated from scratch by the step above (gitignored),
+      # so the launcher icon has to be re-installed every run. Without this the
+      # APK ships a bare square PNG that the launcher masks onto a white circle;
+      # this writes the real adaptive icon (blue background + white arrow).
+      - name: apply ZeroSend launcher icon
+        run: python3 .github/scripts/apply_android_icons.py
+
       # gen/android is regenerated from scratch by the step above (gitignored,
       # never committed), so release signing has to be wired back in every
       # run instead of being a one-time hand-edit — see the script for why.
